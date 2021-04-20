@@ -25,6 +25,8 @@ include("utils/formula.jl")
 include("FixedEffectModel.jl")
 include("fit.jl")
 include("partial_out.jl")
+include("precompile.jl")
+_precompile_()
 
 # Export from StatsBase
 export coef, coefnames, coeftable, responsename, vcov, stderror, nobs, dof_residual, r2, adjr2, islinear, deviance, rss, mss, confint, predict, residuals
@@ -36,5 +38,8 @@ FixedEffectModel,
 has_iv,
 has_fe,
 Vcov
+
+
+
 
 end 

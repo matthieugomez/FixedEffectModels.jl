@@ -39,6 +39,8 @@ function parse_iv(@nospecialize(f::FormulaTerm))
 	return f, nothing, nothing
 end
 
+
+has_iv(@nospecialize(f::FormulaTerm)) = any(term isa FormulaTerm for term in eachterm(f.rhs)) 
 ##############################################################################
 ##
 ## Parse FixedEffect
@@ -53,8 +55,8 @@ fe(s::Symbol) = FixedEffectTerm(s)
 
 has_fe(::FixedEffectTerm) = true
 has_fe(::FunctionTerm{typeof(fe)}) = true
-has_fe(t::InteractionTerm) = any(has_fe(x) for x in t.terms)
-has_fe(::AbstractTerm) = false
+has_fe(@nospecialize(t::InteractionTerm)) = any(has_fe(x) for x in t.terms)
+has_fe(@nospecialize(::AbstractTerm)) = false
 has_fe(@nospecialize(t::FormulaTerm)) = any(has_fe(x) for x in eachterm(t.rhs))
 
 

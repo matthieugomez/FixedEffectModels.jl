@@ -10,6 +10,12 @@ x2 =  cos.(id1) +  sin.(id2) + randn(N)
 y= 3 .* x1 .+ 5 .* x2 .+ cos.(id1) .+ cos.(id2).^2 .+ randn(N)
 df = DataFrame(id1 = id1, id2 = id2, x1 = x1, x2 = x2, y = y)
 # first time
+using SnoopCompileCore
+inf_timing = @snoopi tmin=0.01 reg(df, @formula(y ~ x1 + x2))
+using SnoopCompile
+pc = SnoopCompile.parcel(inf_timing)
+pc[:FixedEffectModels]
+0.01
 @time reg(df, @formula(y ~ x1 + x2))
 # 14s
 @time reg(df, @formula(y ~ x1 + x2))
@@ -24,19 +30,39 @@ df = DataFrame(id1 = id1, id2 = id2, x1 = x1, x2 = x2, y = y)
 # 3.058090 seconds (331.56 k allocations: 1.005 GiB, 2.08% gc time, 5.89% compilation time)
 
 
+using Random, FixedEffects, BenchmarkTools
+N = 10000000
+K = 100
+gid1 = FixedEffects.group(rand(1:div(N, K), N))
+fecoefs = zeros(gid1.n)
+refs = gid1.refs
+y = rand(N)
+cache = rand(N)
+@btime FixedEffects.scatter!(y, 1, fecoefs, refs, cache, 1:N)
+@btime FixedEffects.scatter!(y, 1, fecoefs, refs, cache, 4)
+
+
+@btime FixedEffects.gather!(fecoefs, refs, 1.0, y, cache, 1:N)
+@btime FixedEffects.gather!(fecoefs, refs, 1.0, y, cache, 4)
+
+
+
 # More complicated setup
 N = 800000 # number of observations
 M = 40000 # number of workers
 O = 5000 # number of firms
 id1 = rand(1:M, N)
 id2 = [rand(max(1, div(x, 8)-10):min(O, div(x, 8)+10)) for x in id1]
-x1 = 5 * cos.(id1) + 5 * sin.(id2) + randn(N)
-x2 =  cos.(id1) +  sin.(id2) + randn(N)
+x_1 = randn(N)
+x1 = 5 * cos.(id1) + 5 * sin.(id2) + x_1
+x_2 = x + 0.1 .* randn(N)
+x2 = 5 * cos.(id1) + 5 * sin.(id2) + x_2
 y= 3 .* x1 .+ 5 .* x2 .+ cos.(id1) .+ cos.(id2).^2 .+ randn(N)
-df = DataFrame(id1 = id1, id2 = id2, x1 = x1, x2 = x2, y = y)
+df = DataFrame(id1 = id1, id2 = id2, x1 = x1, x2 = x2, y = y, x_1 = x_1, x_2 = x_2)
 @time reg(df, @formula(y ~ x1 + x2 + fe(id1) + fe(id2)))
 #   3.190288 seconds (393.89 k allocations: 109.614 MiB, 3.63% gc time, 9.75% compilation time)
-
+@time reg(df, @formula(y ~ x1 + x2 + fe(id1) + fe(id2)), tol = 1e-8)
+@time reg(df, @formula(y ~ x_1 + x_2))
 
 +# fixest
 n = 10_000_000
