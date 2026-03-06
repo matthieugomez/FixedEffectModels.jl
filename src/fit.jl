@@ -83,11 +83,9 @@ function StatsAPI.fit(::Type{FixedEffectModel},
     df = DataFrame(df; copycols = false)
     nrows = size(df, 1)
 
-    ##############################################################################
-    ##
-    ## Keyword Arguments
-    ##
-    ##############################################################################
+    #========================================================
+    Keyword Arguments
+    ========================================================#
 
     if method == :gpu
         @info "method = :gpu is deprecated. Use method = :CUDA or method = :Metal"
@@ -106,11 +104,9 @@ function StatsAPI.fit(::Type{FixedEffectModel},
     end
     save_residuals = (save == :residuals) || (save == :all)
 
-    ##############################################################################
-    ##
-    ## Parse formula
-    ##
-    ##############################################################################
+    #========================================================
+    Parse formula
+    ========================================================#
 
     formula_origin = formula
     if !omitsintercept(formula) && !hasintercept(formula)
@@ -134,11 +130,9 @@ function StatsAPI.fit(::Type{FixedEffectModel},
     end
     has_intercept = hasintercept(formula)
 
-    ##############################################################################
-    ##
-    ## Create boolean vector esample that is true for observations used in estimation
-    ##
-    ##############################################################################
+    #========================================================
+    Create boolean vector esample that is true for observations used in estimation
+    ========================================================#
 
     # Collect all variable names needed to detect missing values and build model matrices
     exo_vars = unique(StatsModels.termvars(formula))
@@ -180,11 +174,9 @@ function StatsAPI.fit(::Type{FixedEffectModel},
     subfes = FixedEffect[fe[esample] for fe in fes]
     vcov_method = Vcov.materialize(view(df, esample, :), vcov)
 
-    ##############################################################################
-    ##
-    ## Dataframe --> Matrix
-    ##
-    ##############################################################################
+    #========================================================
+    Dataframe --> Matrix
+    ========================================================#
 
     s = schema(formula, subdf, contrasts)
     
@@ -270,36 +262,32 @@ function StatsAPI.fit(::Type{FixedEffectModel},
         Z .= Z .*  sqrt.(weights)
     end
     
-    ##############################################################################
-    ##
-    ## Get Linearly Independent Components of Matrix
-    ##
-    ##############################################################################
-    # Compute linearly independent columns + create the Xhat matrix
-    Xexo, Xendo, Z, X, Xhat, XhatXhat, basis_coef, perm, Xendo_res, Z_res, Pi = _collinearity(Xexo, Xendo, Z, has_intercept, has_iv, coefnames_endo)
+    #========================================================
+    Get Linearly Independent Components of Matrix + Create the Xhat matrix
+    ========================================================#
 
-    ##############################################################################
-    ##
-    ## Do the regression: solve Xhat'Xhat \ Xhat'y via sweep operator
-    ##
-    ##############################################################################
-    # Build augmented matrix [Xhat'Xhat  Xhat'y; y'Xhat  0] and sweep on
-    # the first k diagonal entries. After sweeping, the top-right block gives
-    # coef = (Xhat'Xhat)^{-1} Xhat'y and the top-left block gives -(Xhat'Xhat)^{-1}.
-    # Uses pre-computed cross-products rather than X'y to avoid numerical issues
-    # (see https://github.com/FixedEffects/FixedEffectModels.jl/issues/249).
+    Xexo, Xendo, Z, X, Xhat, XhatXhat, basis_coef, perm, Xendo_res, Z_res, Pi = collinearity!(Xexo, Xendo, Z, has_intercept, has_iv, coefnames_endo)
+
+    #========================================================
+    Do the regression: solve Xhat'Xhat \ Xhat'y via sweep operator
+    
+    Build augmented matrix [Xhat'Xhat  Xhat'y; y'Xhat  0] and sweep on
+    the first k diagonal entries. After sweeping, the top-right block gives
+    coef = (Xhat'Xhat)^{-1} Xhat'y and the top-left block gives -(Xhat'Xhat)^{-1}.
+    Uses pre-computed cross-products rather than X'y to avoid numerical issues
+    (see https://github.com/FixedEffects/FixedEffectModels.jl/issues/249).
+    ========================================================#
+
     Xy = Symmetric(hvcat(2, XhatXhat, Xhat'reshape(y, length(y), 1),
                          zeros(size(Xhat, 2))', [0.0]))
     invsym!(Xy; diagonal = 1:size(Xhat, 2))
     invXhatXhat = Symmetric(.- Xy[1:(end-1),1:(end-1)])
     coef = Xy[1:(end-1),end]
 
-    ##############################################################################
-    ##
-    ## Test Statistics
-    ##
-    ##############################################################################
-    # Compute residuals = y - X * coef in-place (overwrites y)
+    #========================================================
+    Test Statistics
+    ========================================================#
+
     mul!(y, X, coef, -1.0, 1.0)
     residuals = y
     residuals2 = nothing
@@ -359,18 +347,16 @@ function StatsAPI.fit(::Type{FixedEffectModel},
     rss = sum(abs2, residuals)
     r2_within = has_fes ? 1 - rss / tss_within : 1 - rss / tss_total
 
-    ##############################################################################
-    ##
-    ## Return regression result
-    ##
-    ##############################################################################
+    #========================================================
+    Return regression result
+    ========================================================#
 
     # add omitted variables and reorder IV-reclassified variables
-    coef, matrix_vcov = _reinsert_omitted(coef, matrix_vcov, basis_coef, perm)
+    coef, matrix_vcov = reinsert_omitted!(coef, matrix_vcov, basis_coef, perm)
 
     # Recover FE estimates by projecting (y - Xβ) onto the FE structure.
     # Uses pre-demeaned oldy/oldX (saved before weighting and demeaning).
-    # coef has been expanded by _reinsert_omitted: omitted entries are zero
+    # coef has been expanded by reinsert_omitted!: omitted entries are zero
     # (so extra columns in oldX contribute nothing) and reclassified IV
     # variables are permuted back to the original column order of oldX.
     augmentdf = DataFrame()

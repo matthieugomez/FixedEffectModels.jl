@@ -1,5 +1,9 @@
-# generalized 2inverse
-#actually return minus the symmetric
+"""
+    invsym!(X::Symmetric; has_intercept=false, setzeros=false, diagonal=1:size(X,2))
+
+Generalized inverse via sweep operator.
+Returns minus the symmetric inverse (negated so callers negate back).
+"""
 function invsym!(X::Symmetric; has_intercept = false, setzeros = false, diagonal = 1:size(X, 2))
     tols = max.(diag(X), 1)
     buffer = zeros(size(X, 1))
@@ -24,18 +28,24 @@ function invsym!(X::Symmetric; has_intercept = false, setzeros = false, diagonal
     return X
 end
 
-## Returns base of X = [A B C ...]. Takes as input the matrix X'X (actuallyjust its right upper-triangular)
-## Important: it must be the case that colinear are first columbs in the bsae in the order of columns
-## that is [A B A] returns [true true false] not [false true true]
+"""
+    basis!(XX::Symmetric; has_intercept=false)
+
+Returns base of X = [A B C ...]. Takes as input the matrix X'X (actually just its upper-triangular part).
+Collinear columns must come first in the base, in the order of columns,
+i.e. [A B A] returns [true true false] not [false true true].
+"""
 function basis!(XX::Symmetric; has_intercept = false)
     invXX = invsym!(XX; has_intercept = has_intercept, setzeros = true)
     return diag(invXX) .< 0
 end
 
 
-#solve X \ y. Take as input the matrix [X'X, X'y
-#                                        y'X, y'y]
-# (but only upper matters)
+"""
+    ls_solve!(Xy::Symmetric, nx)
+
+Solve X \\ y. Takes as input the matrix `[X'X X'y; y'X y'y]` (only upper triangle matters).
+"""
 function ls_solve!(Xy::Symmetric, nx)
     if nx > 0
         invsym!(Xy, diagonal = 1:nx)
@@ -45,28 +55,33 @@ function ls_solve!(Xy::Symmetric, nx)
     end
 end
 
-# Build a Symmetric matrix from upper-triangular blocks, filling the lower triangle with zeros.
-function _upper_block_symmetric(A11, A12, A13, A22, A23, A33)
+"""
+    upper_block_symmetric(A11, A12, A13, A22, A23, A33)
+    upper_block_symmetric(A11, A12, A22)
+
+Build a Symmetric matrix from upper-triangular blocks, filling the lower triangle with zeros.
+"""
+function upper_block_symmetric(A11, A12, A13, A22, A23, A33)
     n1, n2, n3 = size(A11, 1), size(A22, 1), size(A33, 1)
     Symmetric(hvcat(3, A11, A12, A13,
                        zeros(n2, n1), A22, A23,
                        zeros(n3, n1), zeros(n3, n2), A33))
 end
 
-function _upper_block_symmetric(A11, A12, A22)
+function upper_block_symmetric(A11, A12, A22)
     n2 = size(A22, 1)
     Symmetric(hvcat(2, A11, A12,
                        zeros(n2, size(A11, 1)), A22))
 end
 
 """
-    _collinearity(Xexo, Xendo, Z, has_intercept, has_iv, coefnames_endo)
+    collinearity!(Xexo, Xendo, Z, has_intercept, has_iv, coefnames_endo)
 
 Remove collinear variables and, for IV models, build the 2SLS projection.
 Returns `(Xexo, Xendo, Z, X, Xhat, XhatXhat, basis_coef, perm, Xendo_res, Z_res, Pi)`.
 For non-IV models, `perm`, `Xendo_res`, `Z_res`, and `Pi` are `nothing`.
 """
-function _collinearity(
+function collinearity!(
     Xexo::Matrix{Float64},           # exogenous regressors (nobs × kexo)
     Xendo::Matrix{Float64},          # endogenous regressors (nobs × kendo; empty if no IV)
     Z::Matrix{Float64},              # instruments (nobs × kinst; empty if no IV)
@@ -90,7 +105,7 @@ function _collinearity(
         XexoXendo = Xexo'Xendo
         ZZ = Z'Z
         ZXendo = Z'Xendo
-        XexoZXendo = _upper_block_symmetric(XexoXexo, XexoZ, XexoXendo, ZZ, ZXendo, XendoXendo)
+        XexoZXendo = upper_block_symmetric(XexoXexo, XexoZ, XexoXendo, ZZ, ZXendo, XendoXendo)
         basis_all = basis!(XexoZXendo; has_intercept = has_intercept)
         basis_Xexo, basis_Z, basis_endo_small = basis_all[1:size(Xexo, 2)], basis_all[(size(Xexo, 2)+1):(size(Xexo, 2)+size(Z, 2))], basis_all[(size(Xexo, 2)+size(Z, 2)+1):end]
 
@@ -106,14 +121,14 @@ function _collinearity(
 
             basis_endo2 = trues(length(basis_endo))
             basis_endo2[basis_endo] = basis_endo_small
-            ans = 1:length(basis_endo)
-            ans = vcat(ans[.!basis_endo2], ans[basis_endo2])
-            perm = vcat(1:length(basis_Xexo), length(basis_Xexo) .+ ans)
+            endo_reorder = 1:length(basis_endo)
+            endo_reorder = vcat(endo_reorder[.!basis_endo2], endo_reorder[basis_endo2])
+            perm = vcat(1:length(basis_Xexo), length(basis_Xexo) .+ endo_reorder)
             out = join(coefnames_endo[.!basis_endo2], " ")
             @info "Endogenous vars collinear with ivs. Recategorized as exogenous: $(out)"
 
             # third pass
-            XexoZXendo = _upper_block_symmetric(XexoXexo, XexoZ, XexoXendo, ZZ, ZXendo, XendoXendo)
+            XexoZXendo = upper_block_symmetric(XexoXexo, XexoZ, XexoXendo, ZZ, ZXendo, XendoXendo)
             basis_all = basis!(XexoZXendo; has_intercept = has_intercept)
             basis_Xexo, basis_Z, _ = basis_all[1:size(Xexo, 2)], basis_all[(size(Xexo, 2)+1):(size(Xexo, 2)+size(Z, 2))], basis_all[(size(Xexo, 2)+size(Z, 2)+1):end]
         end
@@ -143,7 +158,7 @@ function _collinearity(
                        size(newZnewZ, 2))
         newnewZ = newZ * Pi
         Xhat = hcat(Xexo, newnewZ)
-        XhatXhat = _upper_block_symmetric(XexoXexo, Xexo'newnewZ, newnewZ'newnewZ)
+        XhatXhat = upper_block_symmetric(XexoXexo, Xexo'newnewZ, newnewZ'newnewZ)
         X = hcat(Xexo, Xendo)
 
         # prepare residuals for first stage F statistic
@@ -170,12 +185,12 @@ function _collinearity(
 end
 
 """
-    _reinsert_omitted(coef, matrix_vcov, basis_coef, perm)
+    reinsert_omitted!(coef, matrix_vcov, basis_coef, perm)
 
 Expand coefficient vector and vcov matrix to account for omitted (collinear)
 variables and IV-reclassified variable permutations.
 """
-function _reinsert_omitted(
+function reinsert_omitted!(
     coef::Vector{Float64},                   # estimated coefficients (excluding omitted)
     matrix_vcov::Union{Symmetric, Matrix},   # variance-covariance matrix
     basis_coef::BitVector,                   # true for linearly independent columns

@@ -136,10 +136,8 @@ function partial_out(
 
     # Return a dataframe
     out = DataFrame()
-    j = 0
 
-    for y in ynames
-        j += 1
+    for (j, y) in enumerate(ynames)
         if align && (nobs < length(esample))
             out[!, Symbol(y)] = Vector{Union{Float64, Missing}}(missing, size(df, 1))
             out[esample, Symbol(y)] = residuals[:, j]
