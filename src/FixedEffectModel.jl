@@ -139,7 +139,7 @@ function StatsAPI.adjr2(model::FixedEffectModel, variant::Symbol=:devianceratio)
         n = nobs(model)
         dev  = deviance(model)
         dev0 = nulldeviance(model)
-        1 - (dev*(n - (has_int || has_fe(model)))) / (dev0 * max(n - k, 1))
+        1 - (dev*(n - (has_int || has_fe_intercept(model.formula)))) / (dev0 * max(n - k, 1))
     else
         throw(ArgumentError("variant must be one of :McFadden or :devianceratio"))
     end

@@ -925,3 +925,78 @@ end
 	x = reg(df, @formula(Sales ~ Price + NDI + fe(State) + fe(Year) + fe(region)))
 	@test FixedEffectModels.dof_fes(x) == 75
 end
+
+@testset "scale of the variables" begin
+	df = DataFrame(CSV.File(joinpath(dirname(pathof(FixedEffectModels)), "../dataset/Cigar.csv")))
+
+	# a trend with a large mean in a short panel is not collinear with the fixed effects
+	short = df[df.Year .<= 67, :]
+	short.year = short.Year .+ 1900.0
+	x = reg(short, @formula(Sales ~ NDI + year + fe(State)))
+	x0 = reg(short, @formula(Sales ~ NDI + Year + fe(State)))
+	@test coef(x) ≈ coef(x0) rtol = 1e-8
+	@test stderror(x) ≈ stderror(x0) rtol = 1e-8
+
+	# neither the constant nor a regressor is dropped because of the units of another
+	df.big = df.NDI .* 1e12
+	df.small = df.Pop .* 1e-6
+	for v in (Vcov.simple(), Vcov.robust(), Vcov.cluster(:State))
+		x = reg(df, @formula(Sales ~ big + small), v)
+		x0 = reg(df, @formula(Sales ~ NDI + Pop), v)
+		@test coef(x) ≈ coef(x0) ./ [1, 1e12, 1e-6] rtol = 1e-8
+		@test stderror(x) ≈ stderror(x0) ./ [1, 1e12, 1e-6] rtol = 1e-6
+	end
+
+	# a large mean does not affect precision, with or without weights
+	df.shifted = df.NDI .+ 1e10
+	for w in (nothing, :Pop)
+		for v in (Vcov.simple(), Vcov.robust())
+			x = reg(df, @formula(Sales ~ shifted + Price), v; weights = w)
+			x0 = reg(df, @formula(Sales ~ NDI + Price), v; weights = w)
+			@test coef(x)[2:3] ≈ coef(x0)[2:3] rtol = 1e-6
+			@test stderror(x)[2:3] ≈ stderror(x0)[2:3] rtol = 1e-6
+			@test coef(x)[1] ≈ coef(x0)[1] - 1e10 * coef(x0)[2] rtol = 1e-6
+			@test stderror(x)[1] ≈ sqrt(vcov(x0)[1, 1] - 2e10 * vcov(x0)[1, 2] + 1e20 * vcov(x0)[2, 2]) rtol = 1e-6
+		end
+	end
+
+	# a constant regressor is collinear with the constant, or with the fixed effects
+	df.constant .= 0.1
+	@test isnan(stderror(reg(df, @formula(Sales ~ constant + Price)))[2])
+	@test isnan(stderror(reg(df, @formula(Sales ~ constant + Price + fe(State))))[1])
+	# and an IV model has the same constant as a model in levels
+	x = reg(df, @formula(Sales ~ NDI + (Price ~ Pimin)))
+	df.NDIshift = df.NDI .+ 1e6
+	x2 = reg(df, @formula(Sales ~ NDIshift + (Price ~ Pimin)))
+	@test coef(x2)[1] ≈ coef(x)[1] - 1e6 * coef(x)[2] rtol = 1e-6
+	@test coef(x2)[2:3] ≈ coef(x)[2:3] rtol = 1e-6
+end
+
+@testset "slopes nested in a cluster" begin
+	df = DataFrame(CSV.File(joinpath(dirname(pathof(FixedEffectModels)), "../dataset/Cigar.csv")))
+	df.trend = df.Year .- 63.0
+	# matches reghdfe Sales NDI Pop, absorb(State##c.trend) vce(cluster State)
+	x = reg(df, @formula(Sales ~ NDI + Pop + fe(State) + fe(State)&trend), Vcov.cluster(:State); tol = 1e-11)
+	@test coef(x) ≈ [-0.0056133909, -0.0029599972] rtol = 1e-6
+	@test stderror(x) ≈ [0.0010845672, 0.0036060255] rtol = 1e-3
+end
+
+@testset "F-statistic with a singular covariance matrix" begin
+	df = DataFrame(CSV.File(joinpath(dirname(pathof(FixedEffectModels)), "../dataset/Cigar.csv")))
+	df.two = mod.(df.State, 2)
+	# two clusters identify a single linear combination of the coefficients
+	x = reg(df, @formula(Sales ~ NDI + Pop), Vcov.cluster(:two))
+	@test x.F ≈ (coef(x)[2] / stderror(x)[2])^2 rtol = 1e-6
+	# a single cluster identifies none
+	df.one .= 1
+	x = reg(df, @formula(Sales ~ NDI + Pop), Vcov.cluster(:one))
+	@test isnan(x.F)
+	@test all(isnan, stderror(x))
+end
+
+@testset "adjusted R2 with slopes and no constant" begin
+	df = DataFrame(CSV.File(joinpath(dirname(pathof(FixedEffectModels)), "../dataset/Cigar.csv")))
+	x = reg(df, @formula(Sales ~ 0 + NDI + fe(State)&Year))
+	n, k = nobs(x), 1 + 46
+	@test adjr2(x) ≈ 1 - (1 - r2(x)) * n / (n - k)
+end

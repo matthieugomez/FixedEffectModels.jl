@@ -238,14 +238,34 @@ function StatsAPI.fit(::Type{FixedEffectModel},
     all(isfinite, Xendo) || throw(ArgumentError("Some observations for the endogenous variables are infinite"))
     all(isfinite, Z) || throw(ArgumentError("Some observations for the instrumental variables are infinite"))
 
+    # Save pre-demeaned data for FE recovery after estimation
+    if has_fes && save_fes
+        oldy = copy(y)
+        oldX = hcat(Xexo, Xendo)
+    end
+
+    # When the model has a constant, work with deviations from the means. Cross-products keep
+    # their precision for variables with a large mean, and neither the convergence of the
+    # fixed-effect solver nor the collinearity test below depends on the mean.
+    has_centered_constant = has_intercept && !has_fes
+    ymean = 0.0
+    Xmeans = zeros(size(Xexo, 2) + size(Xendo, 2))
+    if has_fe_intercept || has_centered_constant
+        ymean = mean(y, weights)
+        y .-= ymean
+        for (j, x) in enumerate(vcat(eachcol(Xexo), eachcol(Xendo), eachcol(Z)))
+            has_centered_constant && j == 1 && continue
+            xmean = mean(x, weights)
+            sumsquares = sum(abs2, x)
+            x .-= xmean
+            j <= length(Xmeans) && (Xmeans[j] = xmean)
+            # only rounding errors remain in a constant variable
+            sum(abs2, x) < (1000 * eps())^2 * sumsquares && (x .= 0.0)
+        end
+    end
+
     iterations, converged = 0, true
     if has_fes
-        # Save pre-demeaned data for FE recovery after estimation
-        if save_fes
-            oldy = copy(y)
-            oldX = hcat(Xexo, Xendo)
-        end
-
         cols = vcat(eachcol(y), eachcol(Xexo), eachcol(Xendo), eachcol(Z))
         colnames = vcat(response_name, coefnames_exo, coefnames_endo, coefnames_iv)
         # compute 2-norm (sum of squares) for each variable 
@@ -257,9 +277,11 @@ function StatsAPI.fit(::Type{FixedEffectModel},
         # Partial out fixed effects from y, Xexo, Xendo, Z
         _, iterations, convergeds = solve_residuals!(cols, feM; maxiter = maxiter, tol = tol, progress_bar = progress_bar)
 
-        # set variables that are likely to be collinear with the fixed effects to zero
+        # set variables that are likely to be collinear with the fixed effects to zero:
+        # what remains of them is what the solver, which is accurate up to tol, cannot remove
+        collinear_tol = max(100 * tol^2, (1000 * eps(double_precision ? Float64 : Float32))^2)
         for i in 1:length(cols)
-            if sum(abs2, cols[i]) < tol * sumsquares_pre[i]
+            if sum(abs2, cols[i]) <= collinear_tol * sumsquares_pre[i]
                 if i == 1
                     @info "Dependent variable $(colnames[1]) is probably perfectly explained by fixed effects."
                 else
@@ -338,7 +360,7 @@ function StatsAPI.fit(::Type{FixedEffectModel},
     matrix_vcov = StatsAPI.vcov(vcov_data, vcov_method)
    
     # Compute Fstat
-    F = Fstat(coef, matrix_vcov, has_intercept)
+    F, rank_F = Fstat(coef, matrix_vcov, has_intercept)
    
     # dof_ is the number of estimated coefficients beyond the intercept (F-stat numerator).
     dof_ = size(X, 2) - has_intercept
@@ -348,7 +370,7 @@ function StatsAPI.fit(::Type{FixedEffectModel},
     # and minimum(nclusters)-1 = G-1 for clustering. It must NOT be decremented again for
     # the intercept (doing so reported N-K-1 instead of N-K, and G-2 instead of G-1).
     dof_tstat_ = max(1, Vcov.dof_residual(vcov_data, vcov_method))
-    p = fdistccdf(dof_, dof_tstat_, F)
+    p = fdistccdf(rank_F, dof_tstat_, F)
     
     # Compute Fstat of First Stage
     F_kp, p_kp = NaN, NaN
@@ -374,6 +396,20 @@ function StatsAPI.fit(::Type{FixedEffectModel},
 
     # add omitted variables and reorder IV-reclassified variables
     coef, matrix_vcov = reinsert_omitted!(coef, matrix_vcov, basis_coef, perm)
+
+    # the constant of the model in levels: y - x'b has mean ymean - Xmeans'b
+    if has_centered_constant
+        kept = findall(perm === nothing ? basis_coef : basis_coef[invperm(perm)])
+        t = .- Xmeans[kept]
+        t[1] = 1.0
+        coef[1] += ymean - Xmeans' * coef
+        matrix_vcov = Matrix(matrix_vcov)
+        row = matrix_vcov[kept, kept] * t
+        matrix_vcov[1, kept] = row
+        matrix_vcov[kept, 1] = row
+        matrix_vcov[1, 1] = t' * row
+        matrix_vcov = Symmetric(matrix_vcov)
+    end
 
     # Recover FE estimates by projecting (y - Xβ) onto the FE structure.
     # Uses pre-demeaned oldy/oldX (saved before weighting and demeaning).
