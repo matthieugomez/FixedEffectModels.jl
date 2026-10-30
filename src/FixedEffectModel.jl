@@ -99,7 +99,8 @@ StatsModels.formula(m::FixedEffectModel) = m.formula_schema
     dof_fes(m::FixedEffectModel)
 
 Return the number of degrees of freedom absorbed by the fixed effects (the total number of
-fixed-effect levels across all `fe(...)` dimensions).
+fixed-effect levels across all `fe(...)` dimensions, minus the levels that are redundant across
+them).
 """
 dof_fes(m::FixedEffectModel) = m.dof_fes
 

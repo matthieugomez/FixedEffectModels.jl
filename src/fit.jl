@@ -323,21 +323,13 @@ function StatsAPI.fit(::Type{FixedEffectModel},
         end
     end
 
-    # Compute degrees of freedom absorbed by fixed effects.
-    # When an FE is nested within a cluster variable, it only absorbs 1 dof
-    # (its mean is not identified separately from the cluster effect),
-    # rather than the full number of groups.
-    ngroups_fes = [nunique(fe) for fe in subfes]
-    dof_fes = sum(ngroups_fes)
+    # Compute degrees of freedom absorbed by fixed effects: in total (for the adjusted R²),
+    # and for the standard errors, where an FE nested within a cluster variable does not count
+    # (its mean is not identified separately from the cluster effect).
+    dof_fes_total = dof_absorbed(subfes)
+    dof_fes = dof_fes_total
     if vcov isa Vcov.ClusterCovariance
-        dof_fes = 0
-        for i in 1:length(subfes)
-            if any(isnested(subfes[i], v.groups) for v in values(vcov_method.clusters))
-                dof_fes += 1
-            else
-                dof_fes += ngroups_fes[i]
-            end
-        end
+        dof_fes = dof_absorbed(subfes, [v.groups for v in values(vcov_method.clusters)])
     end
 
     # Compute standard error
@@ -363,8 +355,9 @@ function StatsAPI.fit(::Type{FixedEffectModel},
     if has_iv && first_stage
         Pip = Pi[(size(Pi, 1) - size(Z_res, 2) + 1):end, :]
         try 
+            # the residuals are those of the first stage, which has one regressor per instrument
             r_kp = Vcov.ranktest!(Xendo_res, Z_res, Pip,
-                              vcov_method, size(X, 2), dof_fes)
+                              vcov_method, size(Xexo, 2) + size(Z_res, 2), dof_fes)
             p_kp = chisqccdf(size(Z_res, 2) - size(Xendo_res, 2) + 1, r_kp)
             F_kp = r_kp / size(Z_res, 2)
         catch
@@ -403,5 +396,5 @@ function StatsAPI.fit(::Type{FixedEffectModel},
         esample = trues(nrows)
     end
 
-    return FixedEffectModel(coef, matrix_vcov, vcov, nclusters, esample, residuals2, augmentdf, fekeys, coef_names, response_name, formula_origin, formula_schema, contrasts, nobs, dof_, sum(ngroups_fes), dof_tstat_, rss, tss_total, F, p, iterations, converged, r2_within, F_kp, p_kp)
+    return FixedEffectModel(coef, matrix_vcov, vcov, nclusters, esample, residuals2, augmentdf, fekeys, coef_names, response_name, formula_origin, formula_schema, contrasts, nobs, dof_, dof_fes_total, dof_tstat_, rss, tss_total, F, p, iterations, converged, r2_within, F_kp, p_kp)
 end
