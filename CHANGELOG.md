@@ -4,7 +4,7 @@
 
 - Fix the degrees of freedom absorbed by fixed effects: levels that are redundant across fixed effects no longer count (one per connected component), and fixed effects nested in a cluster count only once, for the constant. With two or more fixed effects, this changes `dof_fes`, `dof_residual`, standard errors, the F-statistic, and adjusted R².
 - Fix `F_kp`: it uses the first-stage degrees of freedom when the model is over-identified, applies a degrees-of-freedom correction under simple covariance (it was too high, by more with many fixed effects), and no longer depends on the order of the endogenous variables. `p_kp` changes accordingly.
-- Require Vcov 0.8.4, which contains the two changes to the rank test.
+- Require Vcov 0.8.4, which contains the two changes to the rank test, and FixedEffects 3.4.1.
 - Improve the results display: show the dependent variable in the header, mark IV models in the title, format the F-test p-value like coefficient p-values, add a thousands separator to the number of observations, and warn on non-convergence instead of showing a Converged row (#284).
 
 ## 2.1.0

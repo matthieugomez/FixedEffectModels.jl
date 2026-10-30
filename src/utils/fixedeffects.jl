@@ -169,42 +169,11 @@ function dof_absorbed(fes, clusters = ())
     intercepts = [fe for fe in kept if fe.interaction isa UnitWeights]
     out = sum(nunique, kept; init = 0)
     for j in 2:length(intercepts)
-        out -= maximum(ncomponents(intercepts[i], intercepts[j]) for i in 1:(j - 1))
+        out -= maximum(FixedEffects.components([intercepts[i], intercepts[j]])[2] for i in 1:(j - 1))
     end
     # the constant, absorbed by a nested FE, still counts
     if isempty(intercepts) && any(fe.interaction isa UnitWeights for fe in fes)
         out += 1
     end
     return out
-end
-
-# Number of connected components of the graph linking the levels of two FEs (union-find)
-function ncomponents(fe1::FixedEffect, fe2::FixedEffect)
-    parent = zeros(Int, fe1.n + fe2.n) # 0 for a level not seen yet
-    out = 0
-    @inbounds for (ref1, ref2) in zip(fe1.refs, fe2.refs)
-        i, j = Int(ref1), fe1.n + Int(ref2)
-        if parent[i] == 0
-            parent[i] = i
-            out += 1
-        end
-        if parent[j] == 0
-            parent[j] = j
-            out += 1
-        end
-        i, j = findroot!(parent, i), findroot!(parent, j)
-        if i != j
-            parent[i] = j
-            out -= 1
-        end
-    end
-    return out
-end
-
-function findroot!(parent, i)
-    @inbounds while parent[i] != i
-        parent[i] = parent[parent[i]]
-        i = parent[i]
-    end
-    return i
 end
