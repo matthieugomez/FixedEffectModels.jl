@@ -4,7 +4,6 @@
 
 - Fix regressors and the constant that were dropped as collinear because of the units of another regressor, e.g. the constant with a regressor around 1e12. Fix standard errors in the same cases.
 - Fix regressors that were dropped as collinear with fixed effects because of their mean, e.g. `year` in a panel of five years. The test now compares what remains after absorbing the fixed effects to the variation around the mean, up to the accuracy of the solver.
-- Fix the loss of precision with variables with a large mean: models with a constant are estimated in deviations from the means. This changes coefficients and standard errors only in these cases.
 - Fix the degrees of freedom of slopes nested in a cluster: they count, as in reghdfe, so standard errors, the F-statistic, and `F_kp` change in these models.
 - Fix the F-statistic when the covariance matrix is singular: it tests the linearly independent coefficients, rather than reporting values as large as 1e18.
 - Fix `adjr2` with slope fixed effects and no constant.

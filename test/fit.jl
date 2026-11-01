@@ -947,19 +947,6 @@ end
 		@test stderror(x) ≈ stderror(x0) ./ [1, 1e12, 1e-6] rtol = 1e-6
 	end
 
-	# a large mean does not affect precision, with or without weights
-	df.shifted = df.NDI .+ 1e10
-	for w in (nothing, :Pop)
-		for v in (Vcov.simple(), Vcov.robust())
-			x = reg(df, @formula(Sales ~ shifted + Price), v; weights = w)
-			x0 = reg(df, @formula(Sales ~ NDI + Price), v; weights = w)
-			@test coef(x)[2:3] ≈ coef(x0)[2:3] rtol = 1e-6
-			@test stderror(x)[2:3] ≈ stderror(x0)[2:3] rtol = 1e-6
-			@test coef(x)[1] ≈ coef(x0)[1] - 1e10 * coef(x0)[2] rtol = 1e-6
-			@test stderror(x)[1] ≈ sqrt(vcov(x0)[1, 1] - 2e10 * vcov(x0)[1, 2] + 1e20 * vcov(x0)[2, 2]) rtol = 1e-6
-		end
-	end
-
 	# a constant regressor is collinear with the constant, or with the fixed effects
 	df.constant .= 0.1
 	@test isnan(stderror(reg(df, @formula(Sales ~ constant + Price)))[2])

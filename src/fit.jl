@@ -244,21 +244,13 @@ function StatsAPI.fit(::Type{FixedEffectModel},
         oldX = hcat(Xexo, Xendo)
     end
 
-    # When the model has a constant, work with deviations from the means. Cross-products keep
-    # their precision for variables with a large mean, and neither the convergence of the
-    # fixed-effect solver nor the collinearity test below depends on the mean.
-    has_centered_constant = has_intercept && !has_fes
-    ymean = 0.0
-    Xmeans = zeros(size(Xexo, 2) + size(Xendo, 2))
-    if has_fe_intercept || has_centered_constant
-        ymean = mean(y, weights)
-        y .-= ymean
-        for (j, x) in enumerate(vcat(eachcol(Xexo), eachcol(Xendo), eachcol(Z)))
-            has_centered_constant && j == 1 && continue
-            xmean = mean(x, weights)
+    # The fixed effects absorb the means, so remove them first: neither the convergence of the
+    # fixed-effect solver nor the collinearity test below then depends on the mean.
+    if has_fe_intercept
+        y .-= mean(y, weights)
+        for x in vcat(eachcol(Xexo), eachcol(Xendo), eachcol(Z))
             sumsquares = sum(abs2, x)
-            x .-= xmean
-            j <= length(Xmeans) && (Xmeans[j] = xmean)
+            x .-= mean(x, weights)
             # only rounding errors remain in a constant variable
             sum(abs2, x) < (1000 * eps())^2 * sumsquares && (x .= 0.0)
         end
@@ -396,20 +388,6 @@ function StatsAPI.fit(::Type{FixedEffectModel},
 
     # add omitted variables and reorder IV-reclassified variables
     coef, matrix_vcov = reinsert_omitted!(coef, matrix_vcov, basis_coef, perm)
-
-    # the constant of the model in levels: y - x'b has mean ymean - Xmeans'b
-    if has_centered_constant
-        kept = findall(perm === nothing ? basis_coef : basis_coef[invperm(perm)])
-        t = .- Xmeans[kept]
-        t[1] = 1.0
-        coef[1] += ymean - Xmeans' * coef
-        matrix_vcov = Matrix(matrix_vcov)
-        row = matrix_vcov[kept, kept] * t
-        matrix_vcov[1, kept] = row
-        matrix_vcov[kept, 1] = row
-        matrix_vcov[1, 1] = t' * row
-        matrix_vcov = Symmetric(matrix_vcov)
-    end
 
     # Recover FE estimates by projecting (y - Xβ) onto the FE structure.
     # Uses pre-demeaned oldy/oldX (saved before weighting and demeaning).
